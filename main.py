@@ -73,6 +73,8 @@ def main(args):
         natural_performance(model, test_loader)
     else:
         attack_loader(model, test_loader, model_config, attack_config)
+        #switch to below statement for plotting benign inquiry probability scores
+        #benign_loader(model, test_loader) 
 
 
 if __name__ == '__main__':

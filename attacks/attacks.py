@@ -1,5 +1,6 @@
 import logging
 import time
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 import torch
 import numpy as np
@@ -43,6 +44,51 @@ def natural_performance(model, loader):
     logging.info("FINISHED")
     return accuracy_score(y_true, y_pred)
 
+def benign_loader(model, loader):
+    good1x_values=[]
+    good1y_values=[]
+    good2x_values=[]
+    good2y_values=[]
+
+    pbar = tqdm(loader, colour="greeen")
+    for i, (x, y, p) in enumerate(pbar):
+        x = x.cuda()
+        y = y.cuda()
+
+        benignLogits = model.model(x)
+        #print ("benignLogits:")
+        #print (benignLogits)
+        benignLogitsList = torch.nn.functional.softmax(benignLogits, dim=-1)
+        sortedBinignList = benignLogitsList[0].tolist()
+        sortedBinignList.sort(reverse=True)
+        print("benignLogits= ", sortedBinignList)
+        print("lable = ", y)
+        print("top 2= ", sortedBinignList[0], sortedBinignList[1])
+
+        good1x_values.append(i)
+        good1y_values.append(sortedBinignList[0])
+        good2x_values.append(i)
+        good2y_values.append(sortedBinignList[1])
+
+    logging.info("FINISHED")
+    # Create the plot
+    plt.figure(figsize=(14, 6))
+    plt.plot(good1x_values, good1y_values, marker='o', linestyle='-', markersize=6, color='b', label='Largest Probability Score')
+    plt.plot(good2x_values, good2y_values, marker='x', linestyle='-', markersize=6, color='r', label='Second Largest Probability Score')
+
+
+    # Add labels and title
+
+    plt.xlabel('Input Image Case', fontsize=22)
+    plt.ylabel('Probability Score', fontsize=22)
+    plt.title('Top-2 Probability Scores Generated from Benign Input', fontsize=22)
+    plt.legend(loc='center left', fontsize=15)
+
+    #plt.legend()
+
+    # Show the plot
+    #plt.grid(True)
+    plt.show()
 
 # @torch.no_grad()
 def attack_loader(model, loader, model_config, attack_config):
@@ -64,6 +110,18 @@ def attack_loader(model, loader, model_config, attack_config):
 
     # Run attack and compute adversarial accuracy
     y_true, y_pred = [], []
+    x_values = []
+    y_values = []
+
+    goodx_values=[]
+    goody_values=[]
+
+    x2_values = []
+    y2_values = []
+
+    goodx2_values=[]
+    goody2_values=[]
+
     pbar = tqdm(loader, colour="yellow")
     for i, (x, y, p) in enumerate(pbar):
         x = x.cuda()
@@ -86,13 +144,70 @@ def attack_loader(model, loader, model_config, attack_config):
 
         x_adv = x_adv.cuda()
         logits = model.model(x_adv)
+        # print("Attackers x_adv is ", x_adv)
+        # print("logits:")
+        # print (logits)
+        logits_list = torch.nn.functional.softmax(logits, dim=-1)
+        # print(logits_list)
+        sortedList = logits_list[0].tolist()
+        sortedList.sort(reverse=True)
+        # print(sortedList)
+        # print(sortedList[0],sortedList[1])
+
+        x_values.append(i)
+        y_values.append(sortedList[0])
+
+        x2_values.append(i)
+        y2_values.append(sortedList[1])
+
+        benignLogits = model.model(x)
+        # print ("benignLogits:")
+        # print (benignLogits)
+        benignLogitsList = torch.nn.functional.softmax(benignLogits, dim=-1)
+        sortedBinignList = benignLogitsList[0].tolist()
+        sortedBinignList.sort(reverse=True)
+
+        # print(sortedBinignList[0],sortedBinignList[1])
+
+        goodx_values.append(i)
+        goody_values.append(sortedBinignList[0])
+        goodx2_values.append(i)
+        goody2_values.append(sortedBinignList[1])
+
         preds = torch.argmax(logits, dim=1).detach().cpu().numpy().tolist()
         true = y.detach().cpu().numpy().tolist()
+        # print("preds:")
+        # print (preds)
+        # print("true")
+        # print(true)
 
         y_true.extend(true)
         y_pred.extend(preds)
+
         pbar.set_description("Running Accuracy: {} ".format(accuracy_score(y_true, y_pred)))
         logging.info(
             f"True Label : {true[0]} | Predicted Label : {preds[0]} | Cache Hits / Total Queries : {attacker.get_cache_hits()} / {attacker.get_total_queries()}")
         attacker.reset()
     logging.info("FINISHED")
+    # Create the plot
+    plt.figure(figsize=(14, 6))
+    plt.plot(x_values, y_values, marker='+', markersize=6, linestyle='', color='r', label='Largest Probability Score (Adversary Input)')
+    plt.plot(x2_values, y2_values, marker='x', markersize=6, linestyle='', color='r', label='Second Largest Probability Score (Adversary Input)')
+
+    plt.plot(goodx_values, goody_values, marker='+', markersize=6, linestyle='', color='b', label='Largest Probability Score (Benign Input)')
+    plt.plot(goodx2_values, goody2_values, marker='x', markersize=6, linestyle='', color='b', label='Second Largest Probability Score (Benign Input)')
+
+    # Add labels and title
+    plt.xlabel('Input Image Case', fontsize=22)
+    plt.ylabel('Probability Score', fontsize=22)
+    plt.title('Top-2 Probability Scores Generated from Benign and Adversary Input', fontsize=22)
+
+    # Move the legend below the plot
+    plt.legend(loc='center', bbox_to_anchor=(0.5, -0.3), fontsize=15, ncol=2)
+
+    plt.tight_layout()
+    plt.show()
+
+def softmax(logits):
+    exp_logits = np.exp(logits - np.max(logits))  # Subtract max for numerical stability
+    return exp_logits / np.sum(exp_logits, axis=-1, keepdims=True)

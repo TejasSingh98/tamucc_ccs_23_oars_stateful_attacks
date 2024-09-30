@@ -11,6 +11,13 @@ from collections import Counter
 from skimage.feature import local_binary_pattern
 import cv2
 
+firstLogits=[]
+secondLogits = []
+plotIndex=[]
+distance=[]
+meanDistance=[]
+Results=[]
+currentIndex=0
 
 class StateModule:
     @abstractmethod
@@ -328,6 +335,21 @@ class NoOpState(StateModule):
     def resultsTopk(self, img, k):
         return []
 
+class statistics(StateModule):
+    def __init__(self, arguments):
+        pass
+
+    def getDigest(self, img):
+        return img
+
+    def resetCache(self):
+        pass
+
+    def add(self, img, prediction):
+        pass
+
+    def resultsTopk(self, img, k):
+        return []
 
 class StatefulClassifier(torch.nn.Module):
     def __init__(self, model, state_module, hyperparameters):
@@ -350,6 +372,9 @@ class StatefulClassifier(torch.nn.Module):
         self.distances = []
 
     def forward_single(self, x):
+        global firstLogits, secondLogits, plotIndex, currentIndex, distance, meanDistance 
+        count, i, PreviousAverageMarginLoss = 1, 0, 0
+        MarginLoss=[]
         self.total += 1
 
         cached_prediction = None
@@ -379,7 +404,25 @@ class StatefulClassifier(torch.nn.Module):
                     if self.reset_cache_on_hit:
                         self.state_module.resetCache()
                     similar = True
-
+        elif self.aggregation == 'statistics':
+            prediction = self.model(x.to(next(self.model.parameters()).device).unsqueeze(0)).detach()
+            sortedList = prediction[0].tolist()
+            sortedList.sort(reverse=True)
+          
+            firstLogits.append(sortedList[0])
+            secondLogits.append(sortedList[1])
+            MarginLoss.append(firstLogits[0]-secondLogits[0])
+            AverageMarginLoss=sum(MarginLoss)/len(MarginLoss)
+            if count == 1:
+              StandardDeviation=0
+            else:
+              StandardDeviation=((count-2)*StandardDeviation+(MarginLoss[i]-AverageMarginLoss)*(MarginLoss[i]-PreviousAverageMarginLoss))/(count-1)
+            PreviousAverageMarginLoss=AverageMarginLoss
+            if count != 0 and StandardDeviation < 0.6:
+              return prediction.cuda(), True
+            count += 1
+            i += 1
+            currentIndex+=1
         if similar:
             if self.config["action"] != 'rejection_silent':
                 # cached_prediction = -1 * torch.ones_like(cached_prediction)
@@ -451,6 +494,8 @@ def init_stateful_classifier(config):
         state_module = IOTSQA(config["state"])
     elif config["state"]["type"] == "no_op":
         state_module = NoOpState(config["state"])
+    elif config["state"]["type"] == "statistics":
+        state_module = statistics(config["state"])
     else:
         raise NotImplementedError("State module not supported.")
 

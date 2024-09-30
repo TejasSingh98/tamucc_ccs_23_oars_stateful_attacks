@@ -3,8 +3,9 @@ import torchvision
 from torchvision import transforms
 import torchvision.transforms.functional as F
 import json
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from tqdm import tqdm
+import logging
 
 
 class StatefulDefenseDataset(torch.utils.data.Dataset):
@@ -42,11 +43,15 @@ class StatefulDefenseDataset(torch.utils.data.Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        image_path = self.data[idx][0]
-        if self.name == 'imagenet':
-            image = self.transform(Image.open(image_path).convert("RGB"))
-        else:
-            image = self.transform(Image.open(image_path))
-        label = self.data[idx][1]
-        sample = (image, label, image_path)
-        return sample
+        try:
+            image_path = self.data[idx][0]
+            if self.name == 'imagenet':
+                image = self.transform(Image.open(image_path).convert("RGB"))
+            else:
+                image = self.transform(Image.open(image_path))
+            label = self.data[idx][1]
+            sample = (image, label, image_path)
+            return sample
+        except (UnidentifiedImageError, IOError) as e:
+            print("Cannot open image file:", image_path)
+            return self.__getitem__((idx + 1)%len(self.data))
